@@ -1,4 +1,3 @@
-```markdown
 # Infinity Components for Langflow
 
 **Switch Language:** [English](#english-version) | [Tiếng Việt](#phiên-việt)
