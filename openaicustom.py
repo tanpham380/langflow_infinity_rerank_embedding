@@ -171,7 +171,7 @@ def _convert_dict_to_message(_dict: Mapping[str, Any]) -> BaseMessage:
         if audio := _dict.get("audio"):
             additional_kwargs["audio"] = audio
         if reasoning_content := _dict.get("reasoning_content"):
-            additional_kwargs["reasoning_content"] = reasoning_content
+            additional_kwargs["reasoning_content"] = reasoning_content # Keep reasoning_content in additional_kwargs for later use in formatting
         return AIMessage(
             content=content,
             additional_kwargs=additional_kwargs,
@@ -327,12 +327,8 @@ def _convert_delta_to_message_chunk(
         except KeyError:
             pass
 
-    # --- KHÔNG ĐỊNH DẠNG reasoning_content Ở ĐÂY NỮA ---
     if reasoning_content := _dict.get("reasoning_content"):
-        additional_kwargs["reasoning_content"] = reasoning_content
-        #formatted_content = f"<think>{reasoning_content}</think>\n{content}" # Loại bỏ
-        #content = formatted_content # Loại bỏ
-    # --- KẾT THÚC LOẠI BỎ ĐỊNH DẠNG ---
+        additional_kwargs["reasoning_content"] = reasoning_content # Keep reasoning_content in additional_kwargs, but don't format here
 
 
     if role == "user" or default_chunk_class == HumanMessageChunk:
@@ -730,6 +726,13 @@ class BaseChatOpenAI(BaseChatModel):
         generation_chunk = ChatGenerationChunk(
             message=message_chunk, generation_info=generation_info or None
         )
+
+        # Format content with <think> tags here for streaming output
+        if isinstance(generation_chunk.message, AIMessageChunk) and generation_chunk.message.additional_kwargs.get("reasoning_content"):
+            reasoning_content = generation_chunk.message.additional_kwargs.pop("reasoning_content") # Get and remove from kwargs after use
+            generation_chunk.message.content = f"<think>{reasoning_content}</think>\n{generation_chunk.message.content}"
+
+
         return generation_chunk
 
     def _stream(
@@ -743,7 +746,6 @@ class BaseChatOpenAI(BaseChatModel):
         payload = self._get_request_payload(messages, stop=stop, **kwargs)
         default_chunk_class: Type[BaseMessageChunk] = AIMessageChunk
         base_generation_info = {}
-        collected_reasoning_content = "" # Biến tích lũy reasoning_content
 
         if "response_format" in payload:
             if self.include_response_headers:
@@ -765,8 +767,6 @@ class BaseChatOpenAI(BaseChatModel):
         try:
             with context_manager as response:
                 is_first_chunk = True
-                yield ChatGenerationChunk(message=AIMessageChunk(content="<think>")) # Output thẻ <think> mở đầu
-
                 for chunk in response:
                     if not isinstance(chunk, dict):
                         chunk = chunk.model_dump()
@@ -779,31 +779,6 @@ class BaseChatOpenAI(BaseChatModel):
                         continue
                     default_chunk_class = generation_chunk.message.__class__
                     logprobs = (generation_chunk.generation_info or {}).get("logprobs")
-
-                    # Tích lũy reasoning_content
-                    if isinstance(generation_chunk.message, AIMessageChunk) and "reasoning_content" in generation_chunk.message.additional_kwargs:
-                        collected_reasoning_content += generation_chunk.message.additional_kwargs.pop("reasoning_content", "")
-                        if run_manager:
-                            run_manager.on_llm_new_token(
-                                generation_chunk.text,
-                                chunk=generation_chunk,
-                                logprobs=logprobs,
-                            )
-                        is_first_chunk = False
-                        continue # Bỏ qua chunk này, chỉ xử lý reasoning_content
-
-                    # Output reasoning_content đã thu thập (nếu có)
-                    if collected_reasoning_content:
-                        reasoning_chunk = ChatGenerationChunk(message=AIMessageChunk(content=collected_reasoning_content))
-                        if run_manager:
-                            run_manager.on_llm_new_token(
-                                reasoning_chunk.text,
-                                chunk=reasoning_chunk,
-                                logprobs=logprobs,
-                            )
-                        yield reasoning_chunk
-                        collected_reasoning_content = "" # Reset biến tích lũy
-
                     if run_manager:
                         run_manager.on_llm_new_token(
                             generation_chunk.text,
@@ -812,8 +787,6 @@ class BaseChatOpenAI(BaseChatModel):
                         )
                     is_first_chunk = False
                     yield generation_chunk
-
-                yield ChatGenerationChunk(message=AIMessageChunk(content="</think>")) # Output thẻ </think> đóng
         except openai.BadRequestError as e:
             _handle_openai_bad_request(e)
         if hasattr(response, "get_final_completion") and "response_format" in payload:
@@ -893,13 +866,11 @@ class BaseChatOpenAI(BaseChatModel):
             for res in response_dict["choices"]:
                 message = _convert_dict_to_message(res["message"])
 
-                # --- **LOẠI BỎ ĐỊNH DẠNG reasoning_content Ở ĐÂY** ---
-                # Chúng ta đã định dạng trong _convert_delta_to_message_chunk rồi
-                # if isinstance(message, AIMessage) and "reasoning_content" in message.additional_kwargs:
-                #     reasoning_content = message.additional_kwargs.pop("reasoning_content") # Lấy và loại bỏ khỏi kwargs sau khi dùng
-                #     formatted_content = f"<think>{reasoning_content}</think>\n{message.content}"
-                #     message.content = formatted_content
-                # --- Kết thúc loại bỏ ---
+                if isinstance(message, AIMessage) and message.additional_kwargs.get("reasoning_content"):
+                    reasoning_content = message.additional_kwargs.pop("reasoning_content") # Get and remove from kwargs after use
+                    formatted_content = f"<think>{reasoning_content}</think>\n{message.content}"
+                    message.content = formatted_content
+
 
                 if token_usage and isinstance(message, AIMessage):
                     message.usage_metadata = _create_usage_metadata(token_usage)
@@ -940,7 +911,6 @@ class BaseChatOpenAI(BaseChatModel):
         payload = self._get_request_payload(messages, stop=stop, **kwargs)
         default_chunk_class: Type[BaseMessageChunk] = AIMessageChunk
         base_generation_info = {}
-        collected_reasoning_content = "" # Biến tích lũy reasoning_content
 
         if "response_format" in payload:
             if self.include_response_headers:
@@ -966,8 +936,6 @@ class BaseChatOpenAI(BaseChatModel):
         try:
             async with context_manager as response:
                 is_first_chunk = True
-                yield ChatGenerationChunk(message=AIMessageChunk(content="<think>")) # Output thẻ <think> mở đầu
-
                 async for chunk in response:
                     if not isinstance(chunk, dict):
                         chunk = chunk.model_dump()
@@ -980,31 +948,6 @@ class BaseChatOpenAI(BaseChatModel):
                         continue
                     default_chunk_class = generation_chunk.message.__class__
                     logprobs = (generation_chunk.generation_info or {}).get("logprobs")
-
-                    # Tích lũy reasoning_content
-                    if isinstance(generation_chunk.message, AIMessageChunk) and "reasoning_content" in generation_chunk.message.additional_kwargs:
-                        collected_reasoning_content += generation_chunk.message.additional_kwargs.pop("reasoning_content", "")
-                        if run_manager:
-                            await run_manager.on_llm_new_token(
-                                generation_chunk.text,
-                                chunk=generation_chunk,
-                                logprobs=logprobs,
-                            )
-                        is_first_chunk = False
-                        continue # Bỏ qua chunk này, chỉ xử lý reasoning_content
-
-                    # Output reasoning_content đã thu thập (nếu có)
-                    if collected_reasoning_content:
-                        reasoning_chunk = ChatGenerationChunk(message=AIMessageChunk(content=collected_reasoning_content))
-                        if run_manager:
-                            await run_manager.on_llm_new_token(
-                                reasoning_chunk.text,
-                                chunk=reasoning_chunk,
-                                logprobs=logprobs,
-                            )
-                        yield reasoning_chunk
-                        collected_reasoning_content = "" # Reset biến tích lũy
-
                     if run_manager:
                         await run_manager.on_llm_new_token(
                             generation_chunk.text,
@@ -1013,9 +956,6 @@ class BaseChatOpenAI(BaseChatModel):
                         )
                     is_first_chunk = False
                     yield generation_chunk
-
-                yield ChatGenerationChunk(message=AIMessageChunk(content="</think>")) # Output thẻ </think> đóng
-
         except openai.BadRequestError as e:
             _handle_openai_bad_request(e)
         if hasattr(response, "get_final_completion") and "response_format" in payload:
@@ -1751,6 +1691,8 @@ def _oai_structured_outputs_parser(ai_msg: AIMessage) -> PydanticBaseModel:
 
 
 class OpenAIRefusalError(Exception):
+    """Error raised when OpenAI refuses to answer."""
+
 
     def _create_usage_metadata(oai_token_usage: dict) -> UsageMetadata:
         input_tokens = oai_token_usage.get("prompt_tokens", 0)
