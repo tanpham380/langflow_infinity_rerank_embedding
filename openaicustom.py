@@ -95,7 +95,7 @@ from langchain_core.utils.function_calling import (
 )
 from langchain_core.utils.pydantic import (
     PydanticBaseModel,
-    TypeBaseModel,
+     TypeBaseModel,
     is_basemodel_subclass,
 )
 from langchain_core.utils.utils import _build_model_kwargs, from_env, secret_from_env
@@ -727,11 +727,6 @@ class BaseChatOpenAI(BaseChatModel):
             message=message_chunk, generation_info=generation_info or None
         )
 
-        # Format content with <think> tags here for streaming output
-        if isinstance(generation_chunk.message, AIMessageChunk) and generation_chunk.message.additional_kwargs.get("reasoning_content"):
-            reasoning_content = generation_chunk.message.additional_kwargs.pop("reasoning_content") # Get and remove from kwargs after use
-            generation_chunk.message.content = f"<think>{reasoning_content}</think>\n" + generation_chunk.message.content
-
 
         return generation_chunk
 
@@ -746,6 +741,7 @@ class BaseChatOpenAI(BaseChatModel):
         payload = self._get_request_payload(messages, stop=stop, **kwargs)
         default_chunk_class: Type[BaseMessageChunk] = AIMessageChunk
         base_generation_info = {}
+        think_tag_opened = False  # Flag to track if <think> tag is opened
 
         if "response_format" in payload:
             if self.include_response_headers:
@@ -778,6 +774,19 @@ class BaseChatOpenAI(BaseChatModel):
                     if generation_chunk is None:
                         continue
                     default_chunk_class = generation_chunk.message.__class__
+                    if isinstance(generation_chunk.message, AIMessageChunk) and generation_chunk.message.additional_kwargs.get("reasoning_content"):
+                        reasoning_content = generation_chunk.message.additional_kwargs.pop("reasoning_content")
+                        if not think_tag_opened: # Open <think> tag only once
+                            formatted_reasoning_content = f"<think>{reasoning_content}"
+                            generation_chunk.message.content = formatted_reasoning_content + generation_chunk.message.content
+                            think_tag_opened = True
+                        else:
+                             generation_chunk.message.content = reasoning_content + generation_chunk.message.content # Append reasoning content without tags
+                    elif think_tag_opened and generation_chunk.text: # Add closing tag after reasoning if content exists
+                         generation_chunk.message.content =  generation_chunk.message.content + "</think>" + generation_chunk.text
+                         think_tag_opened = False # Reset flag after closing tag
+
+
                     logprobs = (generation_chunk.generation_info or {}).get("logprobs")
                     if run_manager:
                         run_manager.on_llm_new_token(
@@ -787,6 +796,11 @@ class BaseChatOpenAI(BaseChatModel):
                         )
                     is_first_chunk = False
                     yield generation_chunk
+                if think_tag_opened: # In case stream ends before response content, close think tag
+                    generation_chunk.message.content += "</think>"
+                    yield generation_chunk
+
+
         except openai.BadRequestError as e:
             _handle_openai_bad_request(e)
         if hasattr(response, "get_final_completion") and "response_format" in payload:
@@ -866,10 +880,10 @@ class BaseChatOpenAI(BaseChatModel):
             for res in response_dict["choices"]:
                 message = _convert_dict_to_message(res["message"])
 
-                if isinstance(message, AIMessage) and message.additional_kwargs.get("reasoning_content"):
+                if isinstance(message, AIMessage) and message.additional_kwargs.get("reasoning_content") is not None:
                     reasoning_content = message.additional_kwargs.pop("reasoning_content") # Get and remove from kwargs after use
                     formatted_content = f"<think>{reasoning_content}</think>\n{message.content}"
-                    message.content = formatted_content
+                    message.content = formatted_content # only format in non-streaming
 
 
                 if token_usage and isinstance(message, AIMessage):
@@ -911,6 +925,8 @@ class BaseChatOpenAI(BaseChatModel):
         payload = self._get_request_payload(messages, stop=stop, **kwargs)
         default_chunk_class: Type[BaseMessageChunk] = AIMessageChunk
         base_generation_info = {}
+        think_tag_opened = False
+
 
         if "response_format" in payload:
             if self.include_response_headers:
@@ -947,6 +963,19 @@ class BaseChatOpenAI(BaseChatModel):
                     if generation_chunk is None:
                         continue
                     default_chunk_class = generation_chunk.message.__class__
+                    if isinstance(generation_chunk.message, AIMessageChunk) and generation_chunk.message.additional_kwargs.get("reasoning_content"):
+                        reasoning_content = generation_chunk.message.additional_kwargs.pop("reasoning_content")
+                        if not think_tag_opened: # Open <think> tag only once
+                            formatted_reasoning_content = f"<think>{reasoning_content}"
+                            generation_chunk.message.content = formatted_reasoning_content + generation_chunk.message.content
+                            think_tag_opened = True
+                        else:
+                             generation_chunk.message.content = reasoning_content + generation_chunk.message.content # Append reasoning content without tags
+                    elif think_tag_opened and generation_chunk.text: # Add closing tag after reasoning
+                         generation_chunk.message.content =  generation_chunk.message.content + "</think>" + generation_chunk.text
+                         think_tag_opened = False
+
+
                     logprobs = (generation_chunk.generation_info or {}).get("logprobs")
                     if run_manager:
                         await run_manager.on_llm_new_token(
@@ -956,6 +985,10 @@ class BaseChatOpenAI(BaseChatModel):
                         )
                     is_first_chunk = False
                     yield generation_chunk
+                if think_tag_opened: # In case stream ends before response content, close think tag
+                    generation_chunk.message.content += "</think>"
+                    yield generation_chunk
+
         except openai.BadRequestError as e:
             _handle_openai_bad_request(e)
         if hasattr(response, "get_final_completion") and "response_format" in payload:
