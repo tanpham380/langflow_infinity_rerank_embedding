@@ -4,7 +4,7 @@ from langflow.base.models.model import LCModelComponent
 from langflow.base.models.openai_constants import OPENAI_MODEL_NAMES
 from langflow.field_typing import LanguageModel
 from langflow.field_typing.range_spec import RangeSpec
-from langflow.inputs import BoolInput, DictInput, DropdownInput, IntInput, SecretStrInput, SliderInput, StrInput
+from langflow.inputs import BoolInput, DictInput, DropdownInput, IntInput, SecretStrInput, SliderInput, StrInput, MultilineInput
 
 """OpenAI chat wrapper."""
 
@@ -1792,7 +1792,7 @@ class OpenAIRefusalError(Exception):
                 **{k: v for k, v in output_token_details.items() if v is not None}
             ),
         )
-        
+
 import requests
 # from langchain_openai import ChatOpenAI
 from pydantic.v1 import SecretStr
@@ -1809,8 +1809,8 @@ from langflow.inputs import (
     SliderInput,
     StrInput,
     MultilineInput,
-)        
- 
+)
+
 class CustomOpenAIModelComponent(LCModelComponent):
     display_name = "Custom OpenAI API"
     description = "Generates text using OpenAI LLMs."
@@ -1856,67 +1856,65 @@ class CustomOpenAIModelComponent(LCModelComponent):
         SliderInput(
     name="top_p",
     display_name="Top P",
-    min_value=0.0,
-    max_value=1.0,
-    step=0.01,
+    advanced=True,
     value=1.0,
-    info="Giá trị từ 0 đến 1, xác định mức độ chọn lọc token (nucleus sampling)."
+    info="Giá trị từ 0 đến 1, xác định mức độ chọn lọc token (nucleus sampling).",
+    range_spec=RangeSpec(min=0.0, max=1.0, step=0.01),
 ),
     SliderInput(
         name="frequency_penalty",
         display_name="Frequency Penalty",
-        min_value=-2.0,
-        max_value=2.0,
-        step=0.1,
+        advanced=True,
         value=0.0,
-        info="Tham số điều chỉnh tần suất các từ lặp lại"
+        info="Tham số điều chỉnh tần suất các từ lặp lại",
+        range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
     ),
     SliderInput(
         name="presence_penalty",
         display_name="Presence Penalty",
-        min_value=-2.0,
-        max_value=2.0,
-        step=0.1,
+        advanced=True,
         value=0.0,
-        info="Tham số điều chỉnh sự hiện diện của từ lặp lại"
+        info="Tham số điều chỉnh sự hiện diện của từ lặp lại",
+        range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
     ),
     IntInput(
         name="top_k",
         display_name="Top K",
-        min_value=1,
-        max_value=100,
+        advanced=True,
         value=40,
-        info="Số lượng token có xác suất cao nhất được xem xét"
+        info="Số lượng token có xác suất cao nhất được xem xét",
+        range_spec=RangeSpec(min=1, max=100)
     ),
     IntInput(
         name="n",
         display_name="Number of Completions",
-        min_value=1,
-        max_value=10,
+        advanced=True,
         value=1,
-        info="Số lượng completion để sinh cho mỗi prompt"
+        info="Số lượng completion để sinh cho mỗi prompt",
+        range_spec=RangeSpec(min=1, max=10)
     ),
     IntInput(
         name="best_of",
         display_name="Best Of",
-        min_value=1,
-        max_value=20,
+        advanced=True,
         value=1,
-        info="Số lượng completion được tạo để chọn ra kết quả tốt nhất"
+        info="Số lượng completion được tạo để chọn ra kết quả tốt nhất",
+        range_spec=RangeSpec(min=1, max=20)
     ),
     DictInput(
         name="logit_bias",
         display_name="Logit Bias",
+        advanced=True,
         info="Dict ánh xạ token ID với bias (-100 đến 100)",
         value={},
     ),
     IntInput(
         name="logprobs",
         display_name="Log Probabilities",
-        min_value=0,
-        max_value=5,
         value=None,
-        info="Số logprobs cần trả về cho mỗi token"
+        info="Số logprobs cần trả về cho mỗi token",
+        advanced=True,
+        range_spec=RangeSpec(min=0, max=5)
     ),
         IntInput(
             name="seed",
@@ -1954,7 +1952,7 @@ class CustomOpenAIModelComponent(LCModelComponent):
         except requests.exceptions.RequestException as e:
             print(f"Error fetching model names: {e}")
             return []
-    
+
     def build_model(self) -> LanguageModel:
         openai_api_key = self.api_key
         temperature = self.temperature
@@ -1973,18 +1971,17 @@ class CustomOpenAIModelComponent(LCModelComponent):
 }
         # Use the value from input; fallback to default if necessary
         openai_api_base = self.openai_api_base or "https://api.openai.com/"
-    
+
         # Ensure openai_api_base ends with '/v1/'
         if not openai_api_base.endswith("/v1/"):
             openai_api_base = openai_api_base.rstrip("/") + "/v1/"
-    
+
         json_mode = self.json_mode
         seed = self.seed
         max_retries = self.max_retries
         timeout = self.timeout
         model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         api_key = SecretStr(openai_api_key).get_secret_value() if openai_api_key else None
-        self.log(model_kwargs)
         output = ChatOpenAI(
             max_tokens=max_tokens or None,
             model_kwargs=model_kwargs,
