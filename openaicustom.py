@@ -1878,14 +1878,6 @@ class CustomOpenAIModelComponent(LCModelComponent):
         range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
     ),
     IntInput(
-        name="top_k",
-        display_name="Top K",
-        advanced=True,
-        value=40,
-        info="Số lượng token có xác suất cao nhất được xem xét",
-        range_spec=RangeSpec(min=1, max=100)
-    ),
-    IntInput(
         name="n",
         display_name="Number of Completions",
         advanced=True,
@@ -1893,14 +1885,7 @@ class CustomOpenAIModelComponent(LCModelComponent):
         info="Số lượng completion để sinh cho mỗi prompt",
         range_spec=RangeSpec(min=1, max=10)
     ),
-    IntInput(
-        name="best_of",
-        display_name="Best Of",
-        advanced=True,
-        value=1,
-        info="Số lượng completion được tạo để chọn ra kết quả tốt nhất",
-        range_spec=RangeSpec(min=1, max=20)
-    ),
+
     DictInput(
         name="logit_bias",
         display_name="Logit Bias",
@@ -1965,9 +1950,8 @@ class CustomOpenAIModelComponent(LCModelComponent):
     "top_p": self.top_p,
     "frequency_penalty": self.frequency_penalty,
     "presence_penalty": self.presence_penalty,
-    "top_k": self.top_k,
     "n": self.n,
-    "best_of": self.best_of
+    # "best_of": self.best_of
 }
         # Use the value from input; fallback to default if necessary
         openai_api_base = self.openai_api_base or "https://api.openai.com/"
