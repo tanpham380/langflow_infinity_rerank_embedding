@@ -1812,7 +1812,7 @@ from langflow.inputs import (
 )        
  
 class CustomOpenAIModelComponent(LCModelComponent):
-    display_name = "CustomOpenAIModel"
+    display_name = "Custom OpenAI API"
     description = "Generates text using OpenAI LLMs."
     icon = "OpenAI"
     name = "CustomOpenAIModel"
@@ -1826,25 +1826,7 @@ class CustomOpenAIModelComponent(LCModelComponent):
             info="The maximum number of tokens to generate. Set to 0 for unlimited tokens.",
             range_spec=RangeSpec(min=0, max=128000),
         ),
-        MultilineInput(
-            name="model_kwargs",
-            display_name="Model Kwargs",
-            advanced=False,
-            info=(
-                "Additional keyword arguments to pass to the model. "
-                "Các tham số điển hình bao gồm:\n"
-                "- stop: Một chuỗi hoặc danh sách các chuỗi để xác định điểm dừng khi sinh văn bản.\n"
-                "- top_p: Giá trị từ 0 đến 1, xác định mức độ chọn lọc token (nucleus sampling).\n"
-                "- frequency_penalty: Tham số điều chỉnh tần suất các từ lặp lại (mặc định 0).\n"
-                "- presence_penalty: Tham số điều chỉnh sự hiện diện của từ lặp lại (mặc định 0)."
-            ),
-            value={
-                "stop": None,
-                "top_p": 1,
-                "frequency_penalty": 0,
-                "presence_penalty": 0
-            }
-        ),
+
         BoolInput(
             name="json_mode",
             display_name="JSON Mode",
@@ -1871,6 +1853,71 @@ class CustomOpenAIModelComponent(LCModelComponent):
         SliderInput(
             name="temperature", display_name="Temperature", value=0.1, range_spec=RangeSpec(min=0, max=2, step=0.01)
         ),
+        SliderInput(
+    name="top_p",
+    display_name="Top P",
+    min_value=0.0,
+    max_value=1.0,
+    step=0.01,
+    value=1.0,
+    info="Giá trị từ 0 đến 1, xác định mức độ chọn lọc token (nucleus sampling)."
+),
+    SliderInput(
+        name="frequency_penalty",
+        display_name="Frequency Penalty",
+        min_value=-2.0,
+        max_value=2.0,
+        step=0.1,
+        value=0.0,
+        info="Tham số điều chỉnh tần suất các từ lặp lại"
+    ),
+    SliderInput(
+        name="presence_penalty",
+        display_name="Presence Penalty",
+        min_value=-2.0,
+        max_value=2.0,
+        step=0.1,
+        value=0.0,
+        info="Tham số điều chỉnh sự hiện diện của từ lặp lại"
+    ),
+    IntInput(
+        name="top_k",
+        display_name="Top K",
+        min_value=1,
+        max_value=100,
+        value=40,
+        info="Số lượng token có xác suất cao nhất được xem xét"
+    ),
+    IntInput(
+        name="n",
+        display_name="Number of Completions",
+        min_value=1,
+        max_value=10,
+        value=1,
+        info="Số lượng completion để sinh cho mỗi prompt"
+    ),
+    IntInput(
+        name="best_of",
+        display_name="Best Of",
+        min_value=1,
+        max_value=20,
+        value=1,
+        info="Số lượng completion được tạo để chọn ra kết quả tốt nhất"
+    ),
+    DictInput(
+        name="logit_bias",
+        display_name="Logit Bias",
+        info="Dict ánh xạ token ID với bias (-100 đến 100)",
+        value={},
+    ),
+    IntInput(
+        name="logprobs",
+        display_name="Log Probabilities",
+        min_value=0,
+        max_value=5,
+        value=None,
+        info="Số logprobs cần trả về cho mỗi token"
+    ),
         IntInput(
             name="seed",
             display_name="Seed",
@@ -1916,7 +1963,14 @@ class CustomOpenAIModelComponent(LCModelComponent):
             raise ValueError("No model names were returned by the API. Please check your API key and base URL.")
         model_name: str = model_names[0]
         max_tokens = self.max_tokens
-        model_kwargs = self.model_kwargs or {}
+        model_kwargs = {
+    "top_p": self.top_p,
+    "frequency_penalty": self.frequency_penalty,
+    "presence_penalty": self.presence_penalty,
+    "top_k": self.top_k,
+    "n": self.n,
+    "best_of": self.best_of
+}
         # Use the value from input; fallback to default if necessary
         openai_api_base = self.openai_api_base or "https://api.openai.com/"
     
