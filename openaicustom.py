@@ -1982,7 +1982,7 @@ class CustomOpenAIModelComponent(LCModelComponent):
         seed = self.seed
         max_retries = self.max_retries
         timeout = self.timeout
-    
+        model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         api_key = SecretStr(openai_api_key).get_secret_value() if openai_api_key else None
         self.log(model_kwargs)
         output = ChatOpenAI(
