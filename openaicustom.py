@@ -1921,9 +1921,7 @@ class CustomOpenAIModelComponent(LCModelComponent):
             "logit_bias": self.logit_bias or {}, # Ensure dict, default to empty dict if None
             "logprobs": self.logprobs if self.logprobs is not None else None, # Explicit None check
         }
-
-
-
+        #testing final
         json_mode = self.json_mode
         model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         api_key = SecretStr(openai_api_key).get_secret_value() if openai_api_key else None
