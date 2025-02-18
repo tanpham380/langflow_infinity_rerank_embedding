@@ -1405,6 +1405,89 @@ class BaseChatOpenAI(BaseChatModel):
 
 
 class ChatOpenAI(BaseChatOpenAI):  # type: ignore[override]
+    """ChatOpenAI class supporting OpenAI and Azure endpoints.
+
+    .. rubric:: Reasoning Models with vLLM
+
+    For users leveraging vLLM with reasoning models, ChatOpenAI offers seamless
+    integration to access the `reasoning_content` from model responses.
+
+    Supported Models
+    ------------------
+    vLLM currently supports the following reasoning models:
+
+    * DeepSeek R1 series (``deepseek_r1``, which looks for ``<think> ... </think>``)
+
+    Quickstart
+    ----------
+    To use reasoning models, you need to specify the ``--enable-reasoning`` and
+    ``--reasoning-parser`` flags when making a request to the chat completion endpoint.
+    The ``--reasoning-parser`` flag specifies the reasoning parser to use for
+    extracting reasoning content from the model output.
+
+    .. code-block:: bash
+
+        vllm serve deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \\
+            --enable-reasoning --reasoning-parser deepseek_r1
+
+    Next, make a request to the model that should return the reasoning content in the response.
+
+    .. code-block:: python
+
+        from openai import OpenAI
+
+        # Modify OpenAI's API key and API base to use vLLM's API server.
+        openai_api_key = "EMPTY"
+        openai_api_base = "http://localhost:8000/v1"
+
+        client = OpenAI(
+            api_key=openai_api_key,
+            base_url=openai_api_base,
+        )
+
+        models = client.models.list()
+        model = models.data[0].id
+
+        # Round 1
+        messages = [{"role": "user", "content": "9.11 and 9.8, which is greater?"}]
+        response = client.chat.completions.create(model=model, messages=messages)
+
+        reasoning_content = response.choices[0].message.reasoning_content
+        content = response.choices[0].message.content
+
+        print("reasoning_content:", reasoning_content)
+        print("content:", content)
+
+    The ``reasoning_content`` field contains the reasoning steps that led to the final
+    conclusion, while the ``content`` field contains the final conclusion.
+
+    Streaming chat completions
+    --------------------------
+    Streaming chat completions are also supported for reasoning models. The
+    ``reasoning_content`` field is available in the ``delta`` field in chat completion
+    response chunks.
+
+    .. code-block:: json
+
+        {
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1694268190,
+            "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+            "system_fingerprint": "fp_44709d6fcb",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "reasoning_content": "is",
+                    },
+                    "logprobs": null,
+                    "finish_reason": null
+                }
+            ]
+        }
+    """
 
     stream_usage: bool = False
     """Whether to include usage metadata in streaming output. If True, additional
@@ -1733,7 +1816,6 @@ class CustomOpenAIModelComponent(LCModelComponent):
     description = "Generates text using OpenAI LLMs."
     icon = "OpenAI"
     name = "CustomOpenAIModel"
-
     inputs = [
         *LCModelComponent._base_inputs,
         IntInput(
@@ -1771,53 +1853,52 @@ class CustomOpenAIModelComponent(LCModelComponent):
             name="temperature", display_name="Temperature", value=0.1, range_spec=RangeSpec(min=0, max=2, step=0.01)
         ),
         SliderInput(
-    name="top_p",
-    display_name="Top P",
-    advanced=True,
-    value=1.0,
-    info="Giá trị từ 0 đến 1, xác định mức độ chọn lọc token (nucleus sampling).",
-    range_spec=RangeSpec(min=0.0, max=1.0, step=0.01),
-),
-    SliderInput(
-        name="frequency_penalty",
-        display_name="Frequency Penalty",
-        advanced=True,
-        value=0.0,
-        info="Tham số điều chỉnh tần suất các từ lặp lại",
-        range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
-    ),
-    SliderInput(
-        name="presence_penalty",
-        display_name="Presence Penalty",
-        advanced=True,
-        value=0.0,
-        info="Tham số điều chỉnh sự hiện diện của từ lặp lại",
-        range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
-    ),
-    IntInput(
-        name="n",
-        display_name="Number of Completions",
-        advanced=True,
-        value=1,
-        info="Số lượng completion để sinh cho mỗi prompt",
-        range_spec=RangeSpec(min=1, max=10)
-    ),
-
-    DictInput(
-        name="logit_bias",
-        display_name="Logit Bias",
-        advanced=True,
-        info="Dict ánh xạ token ID với bias (-100 đến 100)",
-        value={},
-    ),
-    IntInput(
-        name="logprobs",
-        display_name="Log Probabilities",
-        value=None,
-        info="Số logprobs cần trả về cho mỗi token",
-        advanced=True,
-        range_spec=RangeSpec(min=0, max=5)
-    ),
+            name="top_p",
+            display_name="Top P",
+            advanced=True,
+            value=1.0,
+            info="Giá trị từ 0 đến 1, xác định mức độ chọn lọc token (nucleus sampling).",
+            range_spec=RangeSpec(min=0.0, max=1.0, step=0.01),
+        ),
+        SliderInput(
+            name="frequency_penalty",
+            display_name="Frequency Penalty",
+            advanced=True,
+            value=0.0,
+            info="Tham số điều chỉnh tần suất các từ lặp lại",
+            range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
+        ),
+        SliderInput(
+            name="presence_penalty",
+            display_name="Presence Penalty",
+            advanced=True,
+            value=0.0,
+            info="Tham số điều chỉnh sự hiện diện của từ lặp lại",
+            range_spec=RangeSpec(min=-2.0, max=2.0, step=0.1)
+        ),
+        IntInput(
+            name="n",
+            display_name="Number of Completions",
+            advanced=True,
+            value=1,
+            info="Số lượng completion để sinh cho mỗi prompt",
+            range_spec=RangeSpec(min=1, max=10)
+        ),
+        DictInput(
+            name="logit_bias",
+            display_name="Logit Bias",
+            advanced=True,
+            info="Dict ánh xạ token ID với bias (-100 đến 100)",
+            value={},
+        ),
+        IntInput(
+            name="logprobs",
+            display_name="Log Probabilities",
+            value=None,
+            info="Số logprobs cần trả về cho mỗi token",
+            advanced=True,
+            range_spec=RangeSpec(min=0, max=5)
+        ),
         IntInput(
             name="seed",
             display_name="Seed",
@@ -1839,6 +1920,29 @@ class CustomOpenAIModelComponent(LCModelComponent):
             advanced=True,
             value=700,
         ),
+        BoolInput(
+            name="enable_reasoning",
+            display_name="Enable Reasoning Outputs",
+            advanced=False,
+            value=False,
+            info="Enable reasoning outputs from the model (if supported, e.g., vLLM with reasoning models).",
+        ),
+        DropdownInput(
+            name="reasoning_parser",
+            display_name="Reasoning Parser",
+            advanced=True,
+            value="deepseek_r1", # Default to deepseek_r1 as per example
+            options=["deepseek_r1"], # Add other supported parsers
+            info="The reasoning parser to use (e.g., deepseek_r1). Check your vLLM documentation for options.",
+        ),
+        DropdownInput( # Optional: Add reasoning_effort if your model supports it
+            name="reasoning_effort",
+            display_name="Reasoning Effort",
+            advanced=True,
+            value= "medium", # or "medium" as default, check your model's recommendations
+            options=[ "low", "medium", "high"], # Options might vary, check docs
+            info="Controls the reasoning effort (e.g., low, medium, high). Check your model's documentation.",
+        ),
     ]
 
     @classmethod
@@ -1857,6 +1961,8 @@ class CustomOpenAIModelComponent(LCModelComponent):
 
     def build_model(self) -> LanguageModel:
         openai_api_key = self.api_key
+        openai_api_base = self.openai_api_base.rstrip('/') + '/v1'
+
         temperature = self.temperature
         model_names = self.get_model_names(self.openai_api_base, openai_api_key)
         if not model_names:
@@ -1864,21 +1970,28 @@ class CustomOpenAIModelComponent(LCModelComponent):
         model_name: str = model_names[0]
         max_tokens = self.max_tokens
         model_kwargs = {
-    "top_p": self.top_p,
-    "frequency_penalty": self.frequency_penalty,
-    "presence_penalty": self.presence_penalty,
-    "n": self.n,
-    # "best_of": self.best_of
-}
-        # Use the value from input; fallback to default if necessary
-        openai_api_base = self.openai_api_base or "https://api.openai.com/"
+            "top_p": self.top_p,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "n": self.n,
+            "logit_bias": self.logit_bias or {}, # Ensure dict, default to empty dict if None
+            "logprobs": self.logprobs if self.logprobs is not None else None, # Explicit None check
+            "seed": self.seed, # Seed is set here in model_kwargs
+            "max_retries": self.max_retries,
+            "request_timeout": self.timeout,
+        }
 
-        # Ensure openai_api_base ends with '/v1/'
-        if not openai_api_base.endswith("/v1/"):
-            openai_api_base = openai_api_base.rstrip("/") + "/v1/"
+        # Reasoning Parameters:
+        enable_reasoning = self.enable_reasoning
+
+
+        if enable_reasoning:
+            model_kwargs["reasoning_parser"] = self.reasoning_parser
+            if self.reasoning_parser: # Only add reasoning_effort if a value is selected
+                model_kwargs["reasoning_effort"] = self.reasoning_effort
 
         json_mode = self.json_mode
-        seed = self.seed
+
         max_retries = self.max_retries
         timeout = self.timeout
         model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
@@ -1890,7 +2003,7 @@ class CustomOpenAIModelComponent(LCModelComponent):
             base_url=openai_api_base,
             api_key=api_key,
             temperature=temperature if temperature is not None else 0.1,
-            seed=seed,
+            # seed=seed,  <--- REMOVE this redundant seed argument
             max_retries=max_retries,
             request_timeout=timeout,
         )
@@ -1898,6 +2011,9 @@ class CustomOpenAIModelComponent(LCModelComponent):
             output = output.bind(response_format={"type": "json_object"})
 
         return output
+
+
+
 
 
     def _get_exception_message(self, e: Exception):
@@ -1910,4 +2026,6 @@ class CustomOpenAIModelComponent(LCModelComponent):
             message = e.body.get("message")
             if message:
                 return message
-        return None
+        return 
+    
+    
