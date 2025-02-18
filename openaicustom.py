@@ -170,6 +170,8 @@ def _convert_dict_to_message(_dict: Mapping[str, Any]) -> BaseMessage:
                     )
         if audio := _dict.get("audio"):
             additional_kwargs["audio"] = audio
+        if reasoning_content := _dict.get("reasoning_content"):
+            additional_kwargs["reasoning_content"] = reasoning_content
         return AIMessage(
             content=content,
             additional_kwargs=additional_kwargs,
@@ -325,6 +327,14 @@ def _convert_delta_to_message_chunk(
         except KeyError:
             pass
 
+    # --- Add this part to capture reasoning_content in streaming chunks ---
+    if reasoning_content := _dict.get("reasoning_content"):
+        additional_kwargs["reasoning_content"] = reasoning_content
+        formatted_content = f"<think>{reasoning_content}</think>\n{content}"
+        content = formatted_content
+    # --- End of reasoning_content handling ---
+
+
     if role == "user" or default_class == HumanMessageChunk:
         return HumanMessageChunk(content=content, id=id_)
     elif role == "assistant" or default_class == AIMessageChunk:
@@ -352,7 +362,6 @@ def _convert_delta_to_message_chunk(
         return ChatMessageChunk(content=content, role=role, id=id_)
     else:
         return default_class(content=content, id=id_)  # type: ignore
-
 
 def _update_token_usage(
     overall_token_usage: Union[int, dict], new_usage: Union[int, dict]
@@ -839,53 +848,62 @@ class BaseChatOpenAI(BaseChatModel):
         }
 
     def _create_chat_result(
-        self,
-        response: Union[dict, openai.BaseModel],
-        generation_info: Optional[Dict] = None,
-    ) -> ChatResult:
-        generations = []
+            self,
+            response: Union[dict, openai.BaseModel],
+            generation_info: Optional[Dict] = None,
+        ) -> ChatResult:
+            generations = []
 
-        response_dict = (
-            response if isinstance(response, dict) else response.model_dump()
-        )
-        # Sometimes the AI Model calling will get error, we should raise it.
-        # Otherwise, the next code 'choices.extend(response["choices"])'
-        # will throw a "TypeError: 'NoneType' object is not iterable" error
-        # to mask the true error. Because 'response["choices"]' is None.
-        if response_dict.get("error"):
-            raise ValueError(response_dict.get("error"))
-
-        token_usage = response_dict.get("usage")
-        for res in response_dict["choices"]:
-            message = _convert_dict_to_message(res["message"])
-            if token_usage and isinstance(message, AIMessage):
-                message.usage_metadata = _create_usage_metadata(token_usage)
-            generation_info = generation_info or {}
-            generation_info["finish_reason"] = (
-                res.get("finish_reason")
-                if res.get("finish_reason") is not None
-                else generation_info.get("finish_reason")
+            response_dict = (
+                response if isinstance(response, dict) else response.model_dump()
             )
-            if "logprobs" in res:
-                generation_info["logprobs"] = res["logprobs"]
-            gen = ChatGeneration(message=message, generation_info=generation_info)
-            generations.append(gen)
-        llm_output = {
-            "token_usage": token_usage,
-            "model_name": response_dict.get("model", self.model_name),
-            "system_fingerprint": response_dict.get("system_fingerprint", ""),
-        }
+            # Sometimes the AI Model calling will get error, we should raise it.
+            # Otherwise, the next code 'choices.extend(response["choices"])'
+            # will throw a "TypeError: 'NoneType' object is not iterable" error
+            # to mask the true error. Because 'response["choices"]' is None.
+            if response_dict.get("error"):
+                raise ValueError(response_dict.get("error"))
 
-        if isinstance(response, openai.BaseModel) and getattr(
-            response, "choices", None
-        ):
-            message = response.choices[0].message  # type: ignore[attr-defined]
-            if hasattr(message, "parsed"):
-                generations[0].message.additional_kwargs["parsed"] = message.parsed
-            if hasattr(message, "refusal"):
-                generations[0].message.additional_kwargs["refusal"] = message.refusal
+            token_usage = response_dict.get("usage")
+            for res in response_dict["choices"]:
+                message = _convert_dict_to_message(res["message"])
 
-        return ChatResult(generations=generations, llm_output=llm_output)
+                # --- Add this part to format content with reasoning_content ---
+                if isinstance(message, AIMessage) and "reasoning_content" in message.additional_kwargs:
+                    reasoning_content = message.additional_kwargs.pop("reasoning_content") # Remove from kwargs after use
+                    formatted_content = f"<think>{reasoning_content}</think>\n{message.content}"
+                    message.content = formatted_content
+                # --- End of content formatting ---
+
+
+                if token_usage and isinstance(message, AIMessage):
+                    message.usage_metadata = _create_usage_metadata(token_usage)
+                generation_info = generation_info or {}
+                generation_info["finish_reason"] = (
+                    res.get("finish_reason")
+                    if res.get("finish_reason") is not None
+                    else generation_info.get("finish_reason")
+                )
+                if "logprobs" in res:
+                    generation_info["logprobs"] = res["logprobs"]
+                gen = ChatGeneration(message=message, generation_info=generation_info)
+                generations.append(gen)
+            llm_output = {
+                "token_usage": token_usage,
+                "model_name": response_dict.get("model", self.model_name),
+                "system_fingerprint": response_dict.get("system_fingerprint", ""),
+            }
+
+            if isinstance(response, openai.BaseModel) and getattr(
+                response, "choices", None
+            ):
+                message = response.choices[0].message  # type: ignore[attr-defined]
+                if hasattr(message, "parsed"):
+                    generations[0].message.additional_kwargs["parsed"] = message.parsed
+                if hasattr(message, "refusal"):
+                    generations[0].message.additional_kwargs["refusal"] = message.refusal
+
+            return ChatResult(generations=generations, llm_output=llm_output)
 
     async def _astream(
         self,
@@ -1405,89 +1423,7 @@ class BaseChatOpenAI(BaseChatModel):
 
 
 class ChatOpenAI(BaseChatOpenAI):  # type: ignore[override]
-    """ChatOpenAI class supporting OpenAI and Azure endpoints.
 
-    .. rubric:: Reasoning Models with vLLM
-
-    For users leveraging vLLM with reasoning models, ChatOpenAI offers seamless
-    integration to access the `reasoning_content` from model responses.
-
-    Supported Models
-    ------------------
-    vLLM currently supports the following reasoning models:
-
-    * DeepSeek R1 series (``deepseek_r1``, which looks for ``<think> ... </think>``)
-
-    Quickstart
-    ----------
-    To use reasoning models, you need to specify the ``--enable-reasoning`` and
-    ``--reasoning-parser`` flags when making a request to the chat completion endpoint.
-    The ``--reasoning-parser`` flag specifies the reasoning parser to use for
-    extracting reasoning content from the model output.
-
-    .. code-block:: bash
-
-        vllm serve deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \\
-            --enable-reasoning --reasoning-parser deepseek_r1
-
-    Next, make a request to the model that should return the reasoning content in the response.
-
-    .. code-block:: python
-
-        from openai import OpenAI
-
-        # Modify OpenAI's API key and API base to use vLLM's API server.
-        openai_api_key = "EMPTY"
-        openai_api_base = "http://localhost:8000/v1"
-
-        client = OpenAI(
-            api_key=openai_api_key,
-            base_url=openai_api_base,
-        )
-
-        models = client.models.list()
-        model = models.data[0].id
-
-        # Round 1
-        messages = [{"role": "user", "content": "9.11 and 9.8, which is greater?"}]
-        response = client.chat.completions.create(model=model, messages=messages)
-
-        reasoning_content = response.choices[0].message.reasoning_content
-        content = response.choices[0].message.content
-
-        print("reasoning_content:", reasoning_content)
-        print("content:", content)
-
-    The ``reasoning_content`` field contains the reasoning steps that led to the final
-    conclusion, while the ``content`` field contains the final conclusion.
-
-    Streaming chat completions
-    --------------------------
-    Streaming chat completions are also supported for reasoning models. The
-    ``reasoning_content`` field is available in the ``delta`` field in chat completion
-    response chunks.
-
-    .. code-block:: json
-
-        {
-            "id": "chatcmpl-123",
-            "object": "chat.completion.chunk",
-            "created": 1694268190,
-            "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-            "system_fingerprint": "fp_44709d6fcb",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "reasoning_content": "is",
-                    },
-                    "logprobs": null,
-                    "finish_reason": null
-                }
-            ]
-        }
-    """
 
     stream_usage: bool = False
     """Whether to include usage metadata in streaming output. If True, additional
@@ -1976,23 +1912,18 @@ class CustomOpenAIModelComponent(LCModelComponent):
             "n": self.n,
             "logit_bias": self.logit_bias or {}, # Ensure dict, default to empty dict if None
             "logprobs": self.logprobs if self.logprobs is not None else None, # Explicit None check
-            "seed": self.seed, # Seed is set here in model_kwargs
-            "max_retries": self.max_retries,
-            "request_timeout": self.timeout,
         }
 
-        # Reasoning Parameters:
-        enable_reasoning = self.enable_reasoning
-
-
-        if enable_reasoning:
-            model_kwargs["reasoning_parser"] = self.reasoning_parser
-            if self.reasoning_parser: # Only add reasoning_effort if a value is selected
-                model_kwargs["reasoning_effort"] = self.reasoning_effort
+        # Reasoning Parameters (REMOVED for standard OpenAI):
+        # enable_reasoning = self.enable_reasoning
+        # if enable_reasoning:
+        #     model_kwargs["reasoning_parser"] = self.reasoning_parser
+        #     if self.reasoning_parser: # Only add reasoning_effort if a value is selected
+        #         model_kwargs["reasoning_effort"] = self.reasoning_effort
 
         json_mode = self.json_mode
 
-        max_retries = self.max_retries
+
         timeout = self.timeout
         model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         api_key = SecretStr(openai_api_key).get_secret_value() if openai_api_key else None
@@ -2003,14 +1934,15 @@ class CustomOpenAIModelComponent(LCModelComponent):
             base_url=openai_api_base,
             api_key=api_key,
             temperature=temperature if temperature is not None else 0.1,
-            # seed=seed,  <--- REMOVE this redundant seed argument
-            max_retries=max_retries,
-            request_timeout=timeout,
+            seed=self.seed,
+            max_retries=self.max_retries,
+            request_timeout=self.timeout,
         )
         if json_mode:
             output = output.bind(response_format={"type": "json_object"})
 
         return output
+
 
 
 
