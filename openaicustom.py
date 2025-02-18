@@ -730,7 +730,7 @@ class BaseChatOpenAI(BaseChatModel):
         # Format content with <think> tags here for streaming output
         if isinstance(generation_chunk.message, AIMessageChunk) and generation_chunk.message.additional_kwargs.get("reasoning_content"):
             reasoning_content = generation_chunk.message.additional_kwargs.pop("reasoning_content") # Get and remove from kwargs after use
-            generation_chunk.message.content = f"<think>{reasoning_content}</think>\n{generation_chunk.message.content}"
+            generation_chunk.message.content = f"<think>{reasoning_content}</think>\n" + generation_chunk.message.content
 
 
         return generation_chunk
