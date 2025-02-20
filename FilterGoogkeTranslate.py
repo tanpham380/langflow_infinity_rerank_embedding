@@ -8,18 +8,18 @@ from typing import AsyncIterator, Union, Generator
 from contextlib import asynccontextmanager
 
 class FilterAndTranslateComponent(Component):
-    display_name = "Filter and Translate (Dual Input)"
-    description = "Filters Chinese characters in text and translates them to Vietnamese. Supports both full text and processes as a single Message output."
+    display_name = "Filter and Translate (Multi-Language Input)"
+    description = "Filters Chinese, Korean, and Arabic characters in text and translates them to Vietnamese. Supports both full text and processes as a single Message output."
     documentation = "https://py-googletrans.readthedocs.io/en/latest/"
     icon = "google"
-    name = "FilterAndTranslateDualInputComponent"
+    name = "FilterAndTranslateMultiLanguageInputComponent"
 
     inputs = [
         MessageTextInput(
             name="input_text",
             display_name="Input Text",
-            info="Enter text that may contain Chinese characters. Can be full text or streaming chunks.",
-            value="This is a test: 你好, world!",
+            info="Enter text that may contain Chinese, Korean, or Arabic characters. Can be full text or streaming chunks.",
+            value="This is a test: 你好, 호텔, الفندق, world!",
             tool_mode=True,
         ),
     ]
@@ -35,9 +35,11 @@ class FilterAndTranslateComponent(Component):
 
     async def _filter_and_translate_text(self, text: str, translator: Translator) -> str:
         """
-        Filters and translates Chinese characters in text.
+        Filters and translates Chinese, Korean, and Arabic characters in text.
         """
-        pattern = re.compile(r'([\u4e00-\u9fff]+)')
+        # Regex to include Chinese, Korean, and Arabic characters
+        # Chinese (U+4E00-U+9FFF), Hangul Syllables (U+AC00-U+D7A3), Arabic (U+0600-U+06FF) and Arabic Supplement (U+0750-U+077F, U+08A0-U+08FF, U+FB50-U+FDFF, U+FE70-U+FEFF)
+        pattern = re.compile(r'([\u4e00-\u9fff]+)|([\uac00-\ud7a3]+)|([\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]+)')
 
         async def translate_match(match):
             original = match.group(0)
@@ -105,7 +107,7 @@ class FilterAndTranslateComponent(Component):
                         sender_name="Chatbot"
                     )
 
-            return Message(text=final_text, sender="AI", sender_name="Chatbot")
+                return Message(text=final_text, sender="AI", sender_name="Chatbot")
 
         except Exception as e:
             return Message(
