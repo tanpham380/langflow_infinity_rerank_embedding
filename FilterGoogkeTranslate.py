@@ -8,8 +8,9 @@ from typing import AsyncIterator, Union, Generator
 from contextlib import asynccontextmanager
 
 class FilterAndTranslateComponent(Component):
-    display_name = "Filter and Translate (Multi-Language Input)"
-    description = "Filters Chinese, Korean, and Arabic characters in text and translates them to Vietnamese. Supports both full text and processes as a single Message output."
+    display_name = "Filter and Translate (Multi-Language Input with Thai)"
+    description = ("Lọc các ký tự của các ngôn ngữ Trung, Hàn, Ả Rập và Thái "
+                   "trong văn bản, sau đó dịch chúng sang tiếng Việt. Hỗ trợ xử lý văn bản đầy đủ hoặc streaming.")
     documentation = "https://py-googletrans.readthedocs.io/en/latest/"
     icon = "google"
     name = "FilterAndTranslateMultiLanguageInputComponent"
@@ -18,8 +19,9 @@ class FilterAndTranslateComponent(Component):
         MessageTextInput(
             name="input_text",
             display_name="Input Text",
-            info="Enter text that may contain Chinese, Korean, or Arabic characters. Can be full text or streaming chunks.",
-            value="This is a test: 你好, 호텔, الفندق, world!",
+            info=("Nhập văn bản có thể chứa tiếng Trung, Hàn, Ả Rập và Thái. "
+                  "Các phần ký tự của các ngôn ngữ này sẽ được dịch sang tiếng Việt."),
+            value="This is a test: 你好, 호텔, الفندق, สวัสดี, world!",
             tool_mode=True,
         ),
     ]
@@ -35,11 +37,15 @@ class FilterAndTranslateComponent(Component):
 
     async def _filter_and_translate_text(self, text: str, translator: Translator) -> str:
         """
-        Filters and translates Chinese, Korean, and Arabic characters in text.
+        Lọc và dịch các ký tự của các ngôn ngữ Trung, Hàn, Ả Rập và Thái sang tiếng Việt.
         """
-        # Regex to include Chinese, Korean, and Arabic characters
-        # Chinese (U+4E00-U+9FFF), Hangul Syllables (U+AC00-U+D7A3), Arabic (U+0600-U+06FF) and Arabic Supplement (U+0750-U+077F, U+08A0-U+08FF, U+FB50-U+FDFF, U+FE70-U+FEFF)
-        pattern = re.compile(r'([\u4e00-\u9fff]+)|([\uac00-\ud7a3]+)|([\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]+)')
+        # Regex đã được cập nhật bao gồm tiếng Thái (U+0E00-U+0E7F)
+        pattern = re.compile(
+            r'([\u4e00-\u9fff]+)|'      # Tiếng Trung
+            r'([\uac00-\ud7a3]+)|'      # Tiếng Hàn
+            r'([\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]+)|'  # Tiếng Ả Rập
+            r'([\u0e00-\u0e7f]+)'       # Tiếng Thái
+        )
 
         async def translate_match(match):
             original = match.group(0)
@@ -47,6 +53,7 @@ class FilterAndTranslateComponent(Component):
                 translated_result = await translator.translate(original, dest='vi')
                 translated_text = translated_result.text
                 pos = match.start()
+                # Giữ nguyên khoảng trắng hoặc thay đổi chữ cái đầu nếu cần
                 if pos > 0:
                     if text[pos - 1].isspace():
                         translated_text = translated_text[0].lower() + translated_text[1:]
@@ -73,7 +80,8 @@ class FilterAndTranslateComponent(Component):
 
     async def run_filter_and_translate(self) -> Message:
         """
-        Processes input text and returns translated output as a single Message.
+        Xử lý đầu vào và trả về văn bản đã được dịch (các phần ký tự của Trung, Hàn, Ả Rập và Thái được dịch sang tiếng Việt)
+        dưới dạng một Message.
         """
         input_text = self.input_text
         final_text = ""
@@ -81,11 +89,11 @@ class FilterAndTranslateComponent(Component):
         try:
             async with self.get_translator() as translator:
                 if isinstance(input_text, str):
-                    # Handle full text input
+                    # Xử lý văn bản đầy đủ
                     final_text = await self._filter_and_translate_text(input_text, translator)
 
                 elif isinstance(input_text, AsyncIterator):
-                    # Handle streaming input
+                    # Xử lý streaming input (AsyncIterator)
                     async for chunk in input_text:
                         if not chunk.strip():
                             continue
@@ -93,7 +101,7 @@ class FilterAndTranslateComponent(Component):
                         final_text += translated_chunk
 
                 elif isinstance(input_text, Generator):
-                    # Handle sync generator
+                    # Xử lý streaming input (sync Generator)
                     for chunk in input_text:
                         if not chunk.strip():
                             continue
@@ -102,7 +110,7 @@ class FilterAndTranslateComponent(Component):
 
                 else:
                     return Message(
-                        text="Unsupported input type. Please provide text or a text stream.",
+                        text="Unsupported input type. Vui lòng cung cấp văn bản hoặc stream văn bản.",
                         sender="AI",
                         sender_name="Chatbot"
                     )
@@ -111,7 +119,7 @@ class FilterAndTranslateComponent(Component):
 
         except Exception as e:
             return Message(
-                text=f"An error occurred during translation: {str(e)}",
+                text=f"Đã xảy ra lỗi khi dịch: {str(e)}",
                 sender="AI",
                 sender_name="Chatbot"
             )
