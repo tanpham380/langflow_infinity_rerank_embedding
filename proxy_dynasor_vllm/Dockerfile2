@@ -1,0 +1,9 @@
+FROM ghcr.io/sasha0552/vllm:latest
+COPY Dynasor /Dynasor
+# Cài đặt Dynasor
+RUN cd /Dynasor && pip install . && cd -
+# Hoặc thay thế bằng lệnh đơn giản:
+# RUN pip install /Dynasor
+
+ENTRYPOINT ["dynasor-vllm"]
+CMD []
