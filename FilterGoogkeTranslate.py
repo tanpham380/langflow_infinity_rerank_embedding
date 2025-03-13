@@ -38,6 +38,7 @@ class FilterAndTranslateComponent(Component):
     async def _filter_and_translate_text(self, text: str, translator: Translator) -> str:
         """
         Lọc và dịch các ký tự của các ngôn ngữ được hỗ trợ bởi Qwen2 sang tiếng Việt.
+        Chỉ dịch phần sau "</think>".
         Các ngôn ngữ bao gồm:
           - Tiếng Trung: [\u4e00-\u9fff]
           - Tiếng Hàn: [\uac00-\ud7a3]
@@ -53,6 +54,19 @@ class FilterAndTranslateComponent(Component):
           - Tiếng Devanagari (Hindi): [\u0900-\u097F]
           - Tiếng Bengali: [\u0980-\u09FF]
         """
+        # Split text based on "</think>" marker
+        parts = text.split("</think>", 1)
+        
+        # If "</think>" is not found or it's the last part, process the whole text
+        if len(parts) == 1:
+            text_to_translate = text
+            prefix = ""
+        else:
+            # Keep the first part (including "</think>") unchanged
+            prefix = parts[0] + "</think>"
+            # Only translate the second part
+            text_to_translate = parts[1]
+        
         pattern = re.compile(
             r'([\u4e00-\u9fff]+)|'        # Tiếng Trung
             r'([\uac00-\ud7a3]+)|'        # Tiếng Hàn
@@ -68,7 +82,7 @@ class FilterAndTranslateComponent(Component):
             r'([\u0900-\u097F]+)|'        # Tiếng Devanagari (Hindi)
             r'([\u0980-\u09FF]+)'         # Tiếng Bengali
         )
-
+    
         async def translate_match(match):
             original = match.group(0)
             try:
@@ -77,14 +91,14 @@ class FilterAndTranslateComponent(Component):
             except Exception as e:
                 print(f"Translation error: {e}")
                 return match.start(), match.end(), original
-
+    
         async def replace_with_translation(text):
             tasks = [translate_match(match) for match in pattern.finditer(text)]
             translated_parts = await asyncio.gather(*tasks)
-
+    
             # Sắp xếp kết quả theo vị trí xuất hiện trong văn bản
             translated_parts.sort(key=lambda x: x[0])
-
+    
             result_text = ""
             last_pos = 0
             for start_pos, end_pos, translated_text in translated_parts:
@@ -98,8 +112,12 @@ class FilterAndTranslateComponent(Component):
                 last_pos = end_pos
             result_text += text[last_pos:]  # Thêm phần còn lại của văn bản
             return result_text
-
-        return await replace_with_translation(text)
+    
+        # Only translate the part after "</think>"
+        translated_part = await replace_with_translation(text_to_translate)
+        
+        # Combine the unchanged prefix with the translated part
+        return prefix + translated_part
 
     async def run_filter_and_translate(self) -> Message:
         input_text = self.input_text

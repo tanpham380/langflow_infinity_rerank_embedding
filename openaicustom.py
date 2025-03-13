@@ -5,6 +5,7 @@ from langflow.base.models.openai_constants import OPENAI_MODEL_NAMES
 from langflow.field_typing import LanguageModel
 from langflow.field_typing.range_spec import RangeSpec
 from langflow.inputs import BoolInput, DictInput, DropdownInput, IntInput, SecretStrInput, SliderInput, StrInput, MultilineInput
+import random
 
 """OpenAI chat wrapper."""
 
@@ -1897,33 +1898,41 @@ class CustomOpenAIModelComponent(LCModelComponent):
             response = requests.get(f"{openai_api_base}/v1/models", headers=headers)
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             data = response.json()
+        
             model_names = [model["id"] for model in data["data"]]
             return model_names
         except requests.exceptions.RequestException as e:
             print(f"Error fetching model names: {e}")
             return []
 
+
     def build_model(self) -> LanguageModel:
         openai_api_key = self.api_key
         openai_api_base = self.openai_api_base.rstrip('/') + '/v1'
-
+    
         temperature = self.temperature
         model_names = self.get_model_names(self.openai_api_base, openai_api_key)
         if not model_names:
             raise ValueError("No model names were returned by the API. Please check your API key and base URL.")
         model_name: str = model_names[0]
         max_tokens = self.max_tokens
+        self.log(max_tokens)
         model_kwargs = {
             "top_p": self.top_p,
             "frequency_penalty": self.frequency_penalty,
             "presence_penalty": self.presence_penalty,
             "n": self.n,
-            "logit_bias": self.logit_bias or {}, # Ensure dict, default to empty dict if None
-            "logprobs": self.logprobs if self.logprobs is not None else None, # Explicit None check
+            "logit_bias": self.logit_bias or {},  # Ensure dict, default to empty dict if None
+            "logprobs": self.logprobs if self.logprobs is not None else None,  # Explicit None check
         }
         json_mode = self.json_mode
+        self.log(model_name)
         model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         api_key = SecretStr(openai_api_key).get_secret_value() if openai_api_key else None
+    
+        # Nếu self.seed là None hoặc 0, sinh một seed ngẫu nhiên
+        seed = self.seed if (self.seed and self.seed != 0) else random.randint(1, 2**31 - 1)
+    
         output = ChatOpenAI(
             max_tokens=max_tokens or None,
             model_kwargs=model_kwargs,
@@ -1931,14 +1940,15 @@ class CustomOpenAIModelComponent(LCModelComponent):
             base_url=openai_api_base,
             api_key=api_key,
             temperature=temperature if temperature is not None else 0.1,
-            seed=self.seed,
+            seed=seed,
             max_retries=self.max_retries,
             request_timeout=self.timeout,
         )
         if json_mode:
             output = output.bind(response_format={"type": "json_object"})
-
+    
         return output
+
 
     def _get_exception_message(self, e: Exception):
         """Extract a user-friendly error message from an OpenAI exception."""
