@@ -42,14 +42,21 @@ class FilterAndTranslateComponent(Component):
             yield translator
 
     async def _filter_and_translate_text(self, text: str, translator: Translator, remove_think_tags: bool) -> str:
-        parts = text.split("</think>", 1)
-        if len(parts) == 1:
+        if remove_think_tags:
+            # Xóa thẻ <think> và </think>, giữ lại nội dung bên trong
+            text = re.sub(r'<think>(.*?)</think>', r'\1', text, flags=re.DOTALL)
             text_to_translate = text
-            prefix = ""
         else:
-            prefix = parts[0] + "</think>"
-            text_to_translate = parts[1]
-        
+            # Giữ nguyên hành vi cũ: chia văn bản thành prefix và text_to_translate
+            parts = text.split("</think>", 1)
+            if len(parts) == 1:
+                text_to_translate = text
+                prefix = ""
+            else:
+                prefix = parts[0] + "</think>"
+                text_to_translate = parts[1]
+
+        # Biểu thức chính quy để nhận diện các đoạn ký tự tiếng nước ngoài
         pattern = re.compile(
             r'([\u4e00-\u9fff]+)|'        # Tiếng Trung
             r'([\uac00-\ud7a3]+)|'        # Tiếng Hàn
@@ -91,10 +98,15 @@ class FilterAndTranslateComponent(Component):
             result_text += text[last_pos:]
             return result_text
 
+        # Dịch phần văn bản cần dịch
         translated_part = await replace_with_translation(text_to_translate)
-        final_text = prefix + translated_part
-        if remove_think_tags:
-            final_text = re.sub(r'<think>(.*?)</think>', r'\1', final_text, flags=re.DOTALL)
+
+        # Nếu remove_think_tags là False, kết hợp prefix và translated_part
+        if not remove_think_tags and 'prefix' in locals():
+            final_text = prefix + translated_part
+        else:
+            final_text = translated_part
+
         return final_text
 
     async def run_filter_and_translate(self) -> Message:
